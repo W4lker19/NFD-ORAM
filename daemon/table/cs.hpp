@@ -27,176 +27,146 @@
 #define NFD_DAEMON_TABLE_CS_HPP
 
 #include "cs-policy.hpp"
+#include "oram/OramInterface.h"
+#include "oram/OramReadPathEviction.h"
+#include "oram/ServerStorage.h"
+#include "oram/RandomForOram.h"
 
-namespace nfd {
-namespace cs {
-
-/** \brief Implements the Content Store.
- *
- *  This Content Store implementation consists of a Table and a replacement policy.
- *
- *  The Table is a container ( \c std::set ) sorted by full Names of stored Data packets.
- *  Data packets are wrapped in Entry objects. Each Entry contains the Data packet itself,
- *  and a few additional attributes such as when the Data becomes non-fresh.
- *
- *  The replacement policy is implemented in a subclass of \c Policy.
- */
-class Cs : noncopyable
+namespace nfd
 {
-public:
-  explicit
-  Cs(size_t nMaxPackets = 10);
-
-  /** \brief Inserts a Data packet.
-   */
-  void
-  insert(const Data& data, bool isUnsolicited = false);
-
-  /** \brief Asynchronously erases entries under \p prefix.
-   *  \tparam AfterEraseCallback `void f(size_t nErased)`
-   *  \param prefix name prefix of entries
-   *  \param limit max number of entries to erase
-   *  \param cb callback to receive the actual number of erased entries; must not be empty;
-   *            it may be invoked either before or after erase() returns
-   */
-  template<typename AfterEraseCallback>
-  void
-  erase(const Name& prefix, size_t limit, AfterEraseCallback&& cb)
+  namespace cs
   {
-    size_t nErased = eraseImpl(prefix, limit);
-    cb(nErased);
-  }
 
-  /** \brief Finds the best matching Data packet.
-   *  \tparam HitCallback `void f(const Interest&, const Data&)`
-   *  \tparam MissCallback `void f(const Interest&)`
-   *  \param interest the Interest for lookup
-   *  \param hit a callback if a match is found; must not be empty
-   *  \param miss a callback if there's no match; must not be empty
-   *  \note A lookup invokes either callback exactly once.
-   *        The callback may be invoked either before or after find() returns
-   */
-  template<typename HitCallback, typename MissCallback>
-  void
-  find(const Interest& interest, HitCallback&& hit, MissCallback&& miss) const
-  {
-    auto match = findImpl(interest);
-    if (match == m_table.end()) {
-      miss(interest);
-      return;
-    }
-    hit(interest, match->getData());
-  }
+    class Cs : noncopyable
+    {
+    public:
+      explicit Cs(size_t nMaxPackets = 10);
 
-  /** \brief Get number of stored packets.
-   */
-  size_t
-  size() const
-  {
-    return m_table.size();
-  }
+      void
+      insert(const Data &data, bool isUnsolicited = false);
 
-public: // configuration
-  /** \brief Get capacity (in number of packets).
-   */
-  size_t
-  getLimit() const noexcept
-  {
-    return m_policy->getLimit();
-  }
+      template <typename AfterEraseCallback>
+      void
+      erase(const Name &prefix, size_t limit, AfterEraseCallback &&cb)
+      {
+        size_t nErased = eraseImpl(prefix, limit);
+        cb(nErased);
+      }
 
-  /** \brief Change capacity (in number of packets).
-   */
-  void
-  setLimit(size_t nMaxPackets)
-  {
-    return m_policy->setLimit(nMaxPackets);
-  }
+      template <typename HitCallback, typename MissCallback>
+      void
+      find(const Interest &interest, HitCallback &&hit, MissCallback &&miss) const
+      {
+        auto match = findImpl(interest);
+        if (match == m_table.end())
+        {
+          miss(interest);
+          return;
+        }
+        hit(interest, match->getData());
+      }
 
-  /** \brief Get replacement policy.
-   */
-  Policy*
-  getPolicy() const noexcept
-  {
-    return m_policy.get();
-  }
+      size_t
+      size() const
+      {
+        return m_table.size();
+      }
 
-  /** \brief Change replacement policy.
-   *  \pre size() == 0
-   */
-  void
-  setPolicy(unique_ptr<Policy> policy);
+    public: // configuration
+      size_t
+      getLimit() const noexcept
+      {
+        return m_policy->getLimit();
+      }
 
-  /** \brief Get CS_ENABLE_ADMIT flag.
-   *  \sa https://redmine.named-data.net/projects/nfd/wiki/CsMgmt#Update-config
-   */
-  bool
-  shouldAdmit() const noexcept
-  {
-    return m_shouldAdmit;
-  }
+      void
+      setLimit(size_t nMaxPackets)
+      {
+        return m_policy->setLimit(nMaxPackets);
+      }
 
-  /** \brief Set CS_ENABLE_ADMIT flag.
-   *  \sa https://redmine.named-data.net/projects/nfd/wiki/CsMgmt#Update-config
-   */
-  void
-  enableAdmit(bool shouldAdmit) noexcept;
+      Policy *
+      getPolicy() const noexcept
+      {
+        return m_policy.get();
+      }
 
-  /** \brief Get CS_ENABLE_SERVE flag.
-   *  \sa https://redmine.named-data.net/projects/nfd/wiki/CsMgmt#Update-config
-   */
-  bool
-  shouldServe() const noexcept
-  {
-    return m_shouldServe;
-  }
+      void
+      setPolicy(unique_ptr<Policy> policy);
 
-  /** \brief Set CS_ENABLE_SERVE flag.
-   *  \sa https://redmine.named-data.net/projects/nfd/wiki/CsMgmt#Update-config
-   */
-  void
-  enableServe(bool shouldServe) noexcept;
+      bool
+      shouldAdmit() const noexcept
+      {
+        return m_shouldAdmit;
+      }
 
-public: // enumeration
-  using const_iterator = Table::const_iterator;
+      void
+      enableAdmit(bool shouldAdmit) noexcept;
 
-  const_iterator
-  begin() const
-  {
-    return m_table.begin();
-  }
+      bool
+      shouldServe() const noexcept
+      {
+        return m_shouldServe;
+      }
 
-  const_iterator
-  end() const
-  {
-    return m_table.end();
-  }
+      void
+      enableServe(bool shouldServe) noexcept;
 
-private:
-  std::pair<const_iterator, const_iterator>
-  findPrefixRange(const Name& prefix) const;
+    public: // enumeration
+      using const_iterator = Table::const_iterator;
 
-  size_t
-  eraseImpl(const Name& prefix, size_t limit);
+      const_iterator
+      begin() const
+      {
+        return m_table.begin();
+      }
 
-  const_iterator
-  findImpl(const Interest& interest) const;
+      const_iterator
+      end() const
+      {
+        return m_table.end();
+      }
 
-  void
-  setPolicyImpl(unique_ptr<Policy> policy);
+    private:
+      std::pair<const_iterator, const_iterator>
+      findPrefixRange(const Name &prefix) const;
 
-private:
-  Table m_table;
-  unique_ptr<Policy> m_policy;
-  signal::ScopedConnection m_beforeEvictConnection;
+      size_t
+      eraseImpl(const Name &prefix, size_t limit);
 
-  bool m_shouldAdmit = true; ///< if false, no Data will be admitted
-  bool m_shouldServe = true; ///< if false, all lookups will miss
-};
+      const_iterator
+      findImpl(const Interest &interest) const;
 
-} // namespace cs
+      static uint64_t
+      hashPrefix(const Name& name);
 
-using cs::Cs;
+      const_iterator
+      findInOram(const Interest &interest) const;
+
+      void
+      setPolicyImpl(unique_ptr<Policy> policy);
+
+    private:
+      Table m_table;
+      unique_ptr<Policy> m_policy;
+      signal::ScopedConnection m_beforeEvictConnection;
+
+      bool m_shouldAdmit = true;
+      bool m_shouldServe = true;
+
+      // ORAM index: blockId -> iterator into m_table
+    public: // ORAM
+      static constexpr int ORAM_CAPACITY = 1024;
+      static constexpr int ORAM_BLOCK_SIZE = 2200;
+      static std::unique_ptr<ServerStorage> s_storage;
+      static std::unique_ptr<RandomForOram> s_randGen;
+      static std::unique_ptr<OramInterface> s_oram;
+      static std::once_flag s_oramOnceFlag;
+    };
+
+  } // namespace cs
+
+  using cs::Cs;
 
 } // namespace nfd
 

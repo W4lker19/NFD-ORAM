@@ -102,6 +102,9 @@ def configure(conf):
     conf.check_cfg(package='libndn-cxx', args=['libndn-cxx >= 0.9.0', '--cflags', '--libs'],
                    uselib_store='NDN_CXX', pkg_config_path=pkg_config_path)
 
+    conf.check_cfg(package='libcrypto', args=['--cflags', '--libs'],
+               uselib_store='OPENSSL', mandatory=True)
+
     if not conf.options.without_systemd:
         conf.check_cfg(package='libsystemd', args=['--cflags', '--libs'],
                        uselib_store='SYSTEMD', mandatory=False)
@@ -178,9 +181,9 @@ def build(bld):
                                        'daemon/main.cpp']),
         features='pch',
         headers='daemon/nfd-pch.hpp',
-        use='core-objects',
-        includes='daemon',
-        export_includes='daemon')
+        use='core-objects OPENSSL',
+        includes=['daemon', 'daemon/table/oram'],
+        export_includes=['daemon', 'daemon/table/oram'])
 
     if bld.env.HAVE_LIBPCAP:
         nfd_objects.source += bld.path.ant_glob('daemon/face/*ethernet*.cpp')
