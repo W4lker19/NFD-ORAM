@@ -14,22 +14,21 @@
 
 ## Overview
 
-NFD is a network forwarder that implements and evolves together with the Named
-Data Networking (NDN) [protocol](https://docs.named-data.net/NDN-packet-spec/).
-Since the initial public release in 2014, NFD has been a core component of the
-[NDN Platform](https://named-data.net/codebase/platform/).
+NFD is a network forwarder that implements and evolves together with the Named Data Networking (NDN) protocol. Since the initial public release in 2014, NFD has been a core component of the NDN Platform.
 
-The main design goal of NFD is to support diverse experimentation of NDN technology.  The
-design emphasizes *modularity* and *extensibility* to allow easy experiments with new
-protocol features, algorithms, new applications.  We have not fully optimized the code for
-performance.  The intention is that performance optimizations are one type of experiments
-that developers can conduct by trying out different data structures and different
-algorithms; over time, better implementations may emerge within the same design framework.
+The main design goal of NFD is to support diverse experimentation of NDN technology. The design emphasizes modularity and extensibility to allow easy experiments with new protocol features, algorithms, and new applications. We have not fully optimized the code for performance. The intention is that performance optimizations are one type of experiments that developers can conduct by trying out different data structures and different algorithms; over time, better implementations may emerge within the same design framework.
 
-NFD will keep evolving in three aspects: improvement of the modularity framework, keeping
-up with the NDN protocol spec, and addition of other new features. We hope to keep the
-modular framework stable and lean, allowing researchers to implement and experiment with
-various features, some of which may eventually work into the protocol spec.
+This version of NFD extends the Content Store (CS) with an Oblivious RAM (ORAM) layer to enhance privacy against passive network adversaries. The CS now integrates a Path ORAM with Read-Path Eviction (OramReadPathEviction), which obfuscates access patterns to cached content — an observer monitoring the router cannot infer which content is being accessed or served. Key implementation details:
+
+Every CS insert, lookup, eviction, and erase triggers an ORAM access (OramInterface::WRITE or READ), ensuring all memory operations are oblivious
+
+Block identifiers are derived via SHA-256 of the NDN Name, mapped to a fixed capacity of 1024 blocks (ORAM_CAPACITY), each supporting up to 8800 bytes to accommodate the maximum NDN Data packet size
+
+The existing LRU eviction policy and NDN prefix matching semantics are fully preserved
+
+The threat model considers a passive network adversary — the router's memory is assumed trusted. Full memory confidentiality is identified as future work via Intel SGX integration
+
+NFD will keep evolving in three aspects: improvement of the modularity framework, keeping up with the NDN protocol spec, and addition of other new features. We hope to keep the modular framework stable and lean, allowing researchers to implement and experiment with various features, some of which may eventually work into the protocol spec.
 
 ## Documentation
 
