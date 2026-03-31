@@ -24,8 +24,41 @@
  */
 
 #include "pit.hpp"
+#include "common/logger.hpp"
+#include <cstring>
+#include <openssl/sha.h>
 
 namespace nfd::pit {
+
+NFD_LOG_INIT(Pit);
+
+std::unique_ptr<ServerStorage> Pit::s_storage;
+std::unique_ptr<RandomForOram> Pit::s_randGen;
+std::unique_ptr<OramInterface> Pit::s_oram;
+std::once_flag Pit::s_oramOnceFlag;
+
+static void
+initOram()
+{
+  Pit::s_storage = std::make_unique<ServerStorage>();
+  Pit::s_randGen = std::make_unique<RandomForOram>();
+  Pit::s_oram = std::make_unique<OramReadPathEviction>(
+    Pit::s_storage.get(), Pit::s_randGen.get(),
+    /*bucket_size=*/4,
+    /*num_blocks=*/Pit::ORAM_CAPACITY
+  );
+}
+
+uint64_t
+Pit::hashName(const Name& name)
+{
+  const auto& wire = name.wireEncode();
+  uint8_t digest[SHA256_DIGEST_LENGTH];
+  SHA256(wire.data(),wire.size(),digest);
+  uint64_t result = 0;
+  memcpy(&result, digest, sizeof(result));
+  return result;
+}
 
 Iterator&
 Iterator::operator++()
@@ -44,6 +77,7 @@ Iterator::operator++()
 Pit::Pit(NameTree& nameTree)
   : m_nameTree(nameTree)
 {
+  std::call_once(s_oramOnceFlag, initOram);
 }
 
 std::pair<shared_ptr<Entry>, bool>
@@ -75,6 +109,10 @@ Pit::findOrInsert(const Interest& interest, bool allowInsert)
       return entry->canMatch(interest, nteDepth);
     });
   if (it != pitEntries.end()) {
+    int blockId = static_cast<int>(hashName(name) % ORAM_CAPACITY);
+    int buf[ORAM_BLOCK_SIZE] = {};
+    s_oram->access(OramInterface::READ, blockId, buf);
+    NFD_LOG_DEBUG("pit-find name=" << name << " blockId=" << blockId);
     return {*it, false};
   }
 
@@ -82,6 +120,16 @@ Pit::findOrInsert(const Interest& interest, bool allowInsert)
     BOOST_ASSERT(!nte->isEmpty()); // nte shouldn't be created in this call
     return {nullptr, true};
   }
+
+  int blockId = static_cast<int>(hashName(name) % ORAM_CAPACITY);
+  int buf[ORAM_BLOCK_SIZE] = {};
+  buf[0] = 1;
+  buf[1] = blockId;
+  const auto& wire = name.wireEncode();
+  memcpy(&buf[2], wire.data(), std::min(wire.size(), static_cast<size_t>((ORAM_BLOCK_SIZE - 2) * sizeof(int))));
+  s_oram->access(OramInterface::WRITE, blockId, buf);
+  NFD_LOG_INFO("pit-insert blockId=" << blockId << " name=" << name);
+
 
   auto entry = make_shared<Entry>(interest);
   nte->insertPitEntry(entry);
@@ -114,8 +162,16 @@ Pit::findAllDataMatches(const Data& data) const
 void
 Pit::erase(Entry* entry, bool canDeleteNte)
 {
+  const Name& name = entry->getInterest().getName();
+  int blockId = static_cast<int>(hashName(name) % ORAM_CAPACITY);
+  int buf[ORAM_BLOCK_SIZE] = {};
+  s_oram->access(OramInterface::WRITE, blockId, buf);
+
+
   name_tree::Entry* nte = m_nameTree.getEntry(*entry);
   BOOST_ASSERT(nte != nullptr);
+
+  NFD_LOG_DEBUG("pit-erase blockId=" << blockId << " name=" << name);
 
   nte->erasePitEntry(entry);
   if (canDeleteNte) {

@@ -28,6 +28,11 @@
 
 #include "name-tree.hpp"
 #include "pit-entry.hpp"
+#include "oram/OramInterface.h"
+#include "oram/OramReadPathEviction.h"
+#include "oram/ServerStorage.h"
+#include "oram/RandomForOram.h"
+#include <mutex>
 
 namespace nfd {
 namespace pit {
@@ -170,10 +175,20 @@ private:
    */
   std::pair<shared_ptr<Entry>, bool>
   findOrInsert(const Interest& interest, bool allowInsert);
+  
+  static uint64_t hashName(const Name& name);
 
 private:
   NameTree& m_nameTree;
   size_t m_nItems = 0;
+
+public: //ORAM
+  static constexpr int ORAM_CAPACITY = 256;
+  static constexpr int ORAM_BLOCK_SIZE = 128;
+  static std::unique_ptr<ServerStorage> s_storage;
+  static std::unique_ptr<RandomForOram> s_randGen;
+  static std::unique_ptr<OramInterface> s_oram;
+  static std::once_flag s_oramOnceFlag;
 };
 
 } // namespace pit
