@@ -12,10 +12,6 @@ int RandomForOram::bound = -1;
 
 
 RandomForOram::RandomForOram() {
-
-	if (this->is_initialized) {
-		throw new runtime_error("ONLY ONE RANDOM INSTANCE CAN BE USED AT A TIME");
-	}
 	this->rng(long());
 	this->rand_history = vector<int>();
 	is_initialized  = true;
@@ -37,7 +33,7 @@ int RandomForOram::getRandomLeaf() {
 void RandomForOram::RandomForOramMT() {
 
 	if (this->is_initialized) {
-		throw new runtime_error("ONLY ONE RANDOM INSTANCE CAN BE USED AT A TIME");
+		throw runtime_error("ONLY ONE RANDOM INSTANCE CAN BE USED AT A TIME");
 	}
 
 	std::random_device seed1;
@@ -60,7 +56,7 @@ int RandomForOram::getRandomLeafMT() {
 void RandomForOram::RandomForOramLCG() {
 
 	if (this->is_initialized) {
-		throw new runtime_error("ONLY ONE RANDOM INSTANCE CAN BE USED AT A TIME");
+		throw runtime_error("ONLY ONE RANDOM INSTANCE CAN BE USED AT A TIME");
 	}
 	linear_congruential_engine<unsigned long, 0x5DEECE66DL, 11, 281474976710656> rnd_generator;
 	rnd_generator.seed(0L);

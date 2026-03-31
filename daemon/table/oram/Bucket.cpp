@@ -13,7 +13,7 @@ int Bucket::max_size = -1;
 
 Bucket::Bucket(){
     if(!is_init){
-        throw new runtime_error("Please set bucket size before creating a bucket");
+        throw runtime_error("Please set bucket size before creating a bucket");
     }
     blocks = vector<Block>();
 }
@@ -21,7 +21,7 @@ Bucket::Bucket(){
 //Copy constructor
 Bucket::Bucket(Bucket *other){
     if(other == NULL){
-        throw new runtime_error("the other bucket is not malloced.");
+        throw runtime_error("the other bucket is not malloced.");
     }
     blocks = vector<Block>(max_size);
     for(int i = 0; i < max_size; i++){
@@ -42,7 +42,7 @@ Block Bucket::getBlockByIndex(int index) {
 }
 
 void Bucket::addBlock(Block new_blk){
-    if(blocks.size() < max_size){
+    if(blocks.size() < static_cast<size_t>(max_size)){
         Block toAdd = Block(new_blk);
         blocks.push_back(toAdd);
     }
@@ -51,7 +51,7 @@ void Bucket::addBlock(Block new_blk){
 
 bool Bucket::removeBlock(Block rm_blk){
     bool removed = false;
-    for(int i = 0; i < blocks.size(); i++){
+    for(size_t i = 0; i < blocks.size(); i++){
         if(blocks[i].index == rm_blk.index){
             blocks.erase(blocks.begin() + i);
             removed = true;
@@ -68,7 +68,7 @@ vector<Block> Bucket::getBlocks(){
 
 void Bucket::setMaxSize(int maximumSize){
     if(is_init == true){
-        throw new runtime_error("Max Bucket Size was already set");
+        throw runtime_error("Max Bucket Size was already set");
     }
     max_size = maximumSize;
     is_init = true;

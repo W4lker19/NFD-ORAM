@@ -12,8 +12,8 @@
 class ServerStorage : public UntrustedStorageInterface {
 public:
     
-    static bool is_initialized;
-    static bool is_capacity_set;
+    bool is_initialized;
+    bool is_capacity_set;
     //Bucket* buckets;
     std::vector<Bucket> buckets;
     

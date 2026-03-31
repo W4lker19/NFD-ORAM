@@ -183,7 +183,7 @@ private:
   size_t m_nItems = 0;
 
 public: //ORAM
-  static constexpr int ORAM_CAPACITY = 256;
+  static constexpr int ORAM_CAPACITY = 1024;
   static constexpr int ORAM_BLOCK_SIZE = 128;
   static std::unique_ptr<ServerStorage> s_storage;
   static std::unique_ptr<RandomForOram> s_randGen;

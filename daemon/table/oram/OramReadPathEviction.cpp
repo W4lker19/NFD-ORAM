@@ -18,7 +18,7 @@ OramReadPathEviction::OramReadPathEviction(UntrustedStorageInterface* storage, R
     this->num_buckets = pow(2, num_levels)-1;
     if (this->num_buckets*this->bucket_size < this->num_blocks) //deal with precision loss
     {
-        throw new runtime_error("Not enough space for the acutal number of blocks.");
+        throw runtime_error("Not enough space for the acutal number of blocks.");
     }
     this->num_leaves = pow(2, num_levels-1);
     Bucket::resetState();
@@ -60,7 +60,7 @@ int* OramReadPathEviction::access(Operation op, int blockIndex, int *newdata) {
 
     Block *targetBlock = NULL;
     int targetPos = 0;
-    for (int i = 0; i < stash.size(); i++) {
+    for (size_t i = 0; i < stash.size(); i++) {
         Block b = stash[i];
         if (b.index == blockIndex) {
             targetBlock = &b;
@@ -116,10 +116,10 @@ int* OramReadPathEviction::access(Operation op, int blockIndex, int *newdata) {
         }
 
         //remove from the stash
-        for(int i = 0; i < bid_evicted.size(); i++)
+        for(size_t i = 0; i < bid_evicted.size(); i++)
         {   
             
-            for(int j=0; j<stash.size(); j++)
+            for(size_t j=0; j<stash.size(); j++)
             {
                 Block b_instash = stash.at(j);
                 if(b_instash.index == bid_evicted.at(i))

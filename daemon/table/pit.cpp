@@ -44,9 +44,8 @@ initOram()
   Pit::s_randGen = std::make_unique<RandomForOram>();
   Pit::s_oram = std::make_unique<OramReadPathEviction>(
     Pit::s_storage.get(), Pit::s_randGen.get(),
-    /*bucket_size=*/4,
-    /*num_blocks=*/Pit::ORAM_CAPACITY
-  );
+    4,
+    Pit::ORAM_CAPACITY);
 }
 
 uint64_t
