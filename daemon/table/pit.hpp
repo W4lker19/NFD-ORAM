@@ -187,7 +187,7 @@ public: //ORAM
   // Must equal Block::BLOCK_SIZE: OramReadPathEviction::access() copies
   // Block::BLOCK_SIZE ints from the caller's buffer unconditionally, so any
   // smaller value here produces an out-of-bounds read on every PIT operation.
-  static constexpr int ORAM_BLOCK_SIZE = Block::BLOCK_SIZE;
+  static constexpr int ORAM_BLOCK_SIZE = ::Block::BLOCK_SIZE;
   static std::unique_ptr<ServerStorage> s_storage;
   static std::unique_ptr<RandomForOram> s_randGen;
   static std::unique_ptr<OramInterface> s_oram;
