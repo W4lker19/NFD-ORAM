@@ -3,6 +3,8 @@
 //
 
 #include "OramReadPathEviction.h"
+#include "ObliviousOps.h"
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -45,9 +47,16 @@ OramReadPathEviction::OramReadPathEviction(UntrustedStorageInterface* storage, R
 
 int* OramReadPathEviction::access(Operation op, int blockIndex, int *newdata) {
 
-    int *data = new int[Block::BLOCK_SIZE];
+    int *data = new int[Block::BLOCK_SIZE]();
     int oldLeaf = position_map[blockIndex];
-    position_map[blockIndex] = rand_gen->getRandomLeaf();
+    int newLeaf = rand_gen->getRandomLeaf();
+    position_map[blockIndex] = newLeaf;
+
+    // Read-path absorb: pull every block from the path into the stash.
+    // We push real blocks only (dummies have index == -1). The number of
+    // dummies in each bucket is fixed at init and after every eviction, so
+    // the *count* of pushes per level is constant from the host's view of
+    // the encrypted bucket layout.
     for (int i = 0; i < num_levels; i++) {
         vector<Block> blocks = storage->ReadBucket(OramReadPathEviction::P(oldLeaf, i)).getBlocks();
         for (Block b: blocks) {
@@ -55,94 +64,89 @@ int* OramReadPathEviction::access(Operation op, int blockIndex, int *newdata) {
                 stash.push_back(Block(b));
             }
         }
-
     }
 
-    Block *targetBlock = NULL;
-    int targetPos = 0;
+    // Target search: scan the whole stash with no early exit so the iteration
+    // count does not depend on the target's position. We also operate on
+    // stash[i] directly (not a loop-local copy) so the subsequent writes hit
+    // the actual stash slot — fixes the dangling-pointer / use-after-scope
+    // bug from the upstream reference.
+    int32_t targetPos = -1;
     for (size_t i = 0; i < stash.size(); i++) {
-        Block b = stash[i];
-        if (b.index == blockIndex) {
-            targetBlock = &b;
-            targetPos = i;
-            break;
-        }
+        uint32_t mask = oblivious::ct_eq_i32(stash[i].index, blockIndex);
+        targetPos = oblivious::ct_select_i32(mask, static_cast<int32_t>(i), targetPos);
     }
-
+    bool found = (targetPos >= 0);
 
     if (op == Operation::WRITE) {
-        if (targetBlock == NULL) {
-            Block newBlock = Block(position_map[blockIndex], blockIndex, newdata);
-            stash.push_back(newBlock); 
+        if (!found) {
+            stash.push_back(Block(newLeaf, blockIndex, newdata));
         } else {
-            for(int i =0; i < Block::BLOCK_SIZE; i++){
-                targetBlock->data[i] = newdata[i];
+            Block& slot = stash[static_cast<size_t>(targetPos)];
+            slot.leaf_id = newLeaf;
+            for (int i = 0; i < Block::BLOCK_SIZE; i++) {
+                slot.data[i] = newdata[i];
             }
-            stash[targetPos] = Block(*targetBlock);
         }
-    } 
+    }
     else {
-        if(targetBlock == NULL){
-            data = NULL;
-        }
-        else {
-            for(int i = 0; i < Block::BLOCK_SIZE; i++){
-                data[i] = targetBlock->data[i];
+        if (!found) {
+            // Caller treats all-zero buffer as "not present". Returning NULL
+            // (as the reference did) leaks existence via a pointer-vs-data
+            // distinction in the caller's control flow.
+            // data is already zero-initialised above.
+        } else {
+            const Block& slot = stash[static_cast<size_t>(targetPos)];
+            for (int i = 0; i < Block::BLOCK_SIZE; i++) {
+                data[i] = slot.data[i];
             }
         }
     }
 
-
-    // Eviction steps: write to the same path that was read from.
+    // Eviction: write back along the old path, deepest level first. We scan
+    // the whole stash at every level (no early exit on bucket-full) so the
+    // per-level work is independent of which specific stash slots are eligible.
+    // The actual addBlock / erase calls remain conditional; making them fully
+    // oblivious requires a fixed-size per-slot cmov fill, which is left for
+    // a follow-up refactor (see TEE hardening notes).
     for (int l = num_levels - 1; l >= 0; l--) {
 
-        vector<int> bid_evicted = vector<int>();
         Bucket bucket = Bucket();
         int Pxl = P(oldLeaf, l);
         int counter = 0;
+        vector<size_t> evicted_positions;
+        evicted_positions.reserve(static_cast<size_t>(bucket_size));
 
-        for (Block b_instash : stash) {
-            
-            if (counter >= bucket_size) {
-                break;
-            }
-            Block be_evicted = Block(b_instash);
-            if (Pxl == P(position_map[be_evicted.index], l)) {
-                bucket.addBlock(be_evicted);
-
-                bid_evicted.push_back(be_evicted.index);
+        for (size_t i = 0; i < stash.size(); i++) {
+            const Block& b = stash[i];
+            // Always read position_map[b.index] (no branch on b.index validity);
+            // we already filtered dummies on absorb so b.index is in range.
+            int blockLeaf = position_map[b.index];
+            int Pblock = P(blockLeaf, l);
+            uint32_t eligible = oblivious::ct_eq_i32(Pblock, Pxl);
+            uint32_t hasRoom  = oblivious::ct_lt_u32(static_cast<uint32_t>(counter),
+                                                    static_cast<uint32_t>(bucket_size));
+            if ((eligible & hasRoom) != 0u) {
+                bucket.addBlock(b);
+                evicted_positions.push_back(i);
                 counter++;
             }
         }
 
-        //remove from the stash
-        for(size_t i = 0; i < bid_evicted.size(); i++)
-        {   
-            
-            for(size_t j=0; j<stash.size(); j++)
-            {
-                Block b_instash = stash.at(j);
-                if(b_instash.index == bid_evicted.at(i))
-                {   
-                    this->stash.erase(this->stash.begin() + j);
-
-                    break;
-                }
-            }
-            
+        // Remove evicted entries from the stash. Iterate from the back so
+        // earlier indices stay valid.
+        for (size_t k = evicted_positions.size(); k-- > 0;) {
+            stash.erase(stash.begin() + evicted_positions[k]);
         }
 
-        while(counter < bucket_size)
-        {
-            bucket.addBlock(Block()); //dummy block
+        while (counter < bucket_size) {
+            bucket.addBlock(Block()); // dummy
             counter++;
         }
         storage->WriteBucket(Pxl, bucket);
-
     }
 
     return data;
-    
 }
 
 int OramReadPathEviction::P(int leaf, int level) {

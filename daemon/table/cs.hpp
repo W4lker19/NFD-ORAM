@@ -157,7 +157,8 @@ namespace nfd
       // ORAM index: blockId -> iterator into m_table
     public: // ORAM
       static constexpr int ORAM_CAPACITY = 1024;
-      static constexpr int ORAM_BLOCK_SIZE = 2200;
+      // Tied to Block::BLOCK_SIZE — see note in pit.hpp.
+      static constexpr int ORAM_BLOCK_SIZE = Block::BLOCK_SIZE;
       static std::unique_ptr<ServerStorage> s_storage;
       static std::unique_ptr<RandomForOram> s_randGen;
       static std::unique_ptr<OramInterface> s_oram;
