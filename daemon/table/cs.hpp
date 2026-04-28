@@ -32,6 +32,9 @@
 #include "oram/ServerStorage.h"
 #include "oram/RandomForOram.h"
 
+#include <deque>
+#include <mutex>
+
 namespace nfd
 {
   namespace cs
@@ -41,6 +44,8 @@ namespace nfd
     {
     public:
       explicit Cs(size_t nMaxPackets = 10);
+
+      ~Cs();
 
       void
       insert(const Data &data, bool isUnsolicited = false);
@@ -57,13 +62,16 @@ namespace nfd
       void
       find(const Interest &interest, HitCallback &&hit, MissCallback &&miss) const
       {
-        auto match = findImpl(interest);
-        if (match == m_table.end())
-        {
+        // ORAM is the source of truth for the Data wire bytes; m_table only
+        // holds the index. findImpl returns both the iterator (for policy
+        // bookkeeping) and the freshly reconstructed Data.
+        shared_ptr<Data> matched;
+        auto it = findImpl(interest, matched);
+        if (it == m_table.end() || matched == nullptr) {
           miss(interest);
           return;
         }
-        hit(interest, match->getData());
+        hit(interest, *matched);
       }
 
       size_t
@@ -134,14 +142,35 @@ namespace nfd
       size_t
       eraseImpl(const Name &prefix, size_t limit);
 
+      // findImpl now returns both the index iterator and the Data
+      // reconstructed from the ORAM block (or nullptr on miss / decode failure).
       const_iterator
-      findImpl(const Interest &interest) const;
-
-      static uint64_t
-      hashPrefix(const Name& name);
+      findImpl(const Interest &interest, shared_ptr<Data>& outData) const;
 
       const_iterator
-      findInOram(const Interest &interest) const;
+      findInOram(const Interest &interest, shared_ptr<Data>& outData) const;
+
+      // Read ORAM block `blockId` and reconstruct the encoded Data.
+      // Returns nullptr if the block is empty or the wire bytes don't decode.
+      static shared_ptr<Data>
+      readDataFromOram(int blockId);
+
+      // Write `data`'s wire encoding into ORAM block `blockId`.
+      // Returns false if the encoded data exceeds the per-block budget.
+      static bool
+      writeDataToOram(int blockId, const Data& data);
+
+      // Zero ORAM block `blockId` (erasure / eviction).
+      static void
+      clearOramBlock(int blockId);
+
+      // blockId allocator: pop a free id, or return -1 if pool is empty.
+      static int
+      allocateBlockId();
+
+      // Return `blockId` to the free pool.
+      static void
+      freeBlockId(int blockId);
 
       void
       setPolicyImpl(unique_ptr<Policy> policy);
@@ -154,7 +183,6 @@ namespace nfd
       bool m_shouldAdmit = true;
       bool m_shouldServe = true;
 
-      // ORAM index: blockId -> iterator into m_table
     public: // ORAM
       static constexpr int ORAM_CAPACITY = 1024;
       // Tied to Block::BLOCK_SIZE — see note in pit.hpp.
@@ -163,6 +191,8 @@ namespace nfd
       static std::unique_ptr<RandomForOram> s_randGen;
       static std::unique_ptr<OramInterface> s_oram;
       static std::once_flag s_oramOnceFlag;
+      static std::deque<int> s_freeBlockIds;
+      static std::mutex s_oramMutex;
     };
 
   } // namespace cs
