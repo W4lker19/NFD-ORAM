@@ -15,8 +15,8 @@ using namespace std;
 
 class RandomForOram : public RandForOramInterface {
 	public:
-		static bool is_initialized;
-		static int bound;
+		bool is_initialized = false;
+		int bound = -1;
 		vector<int> rand_history;
 		RandomForOram();
 		void RandomForOramMT();

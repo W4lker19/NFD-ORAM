@@ -32,6 +32,7 @@
 #include "oram/OramReadPathEviction.h"
 #include "oram/ServerStorage.h"
 #include "oram/RandomForOram.h"
+#include <deque>
 #include <mutex>
 
 namespace nfd {
@@ -91,6 +92,8 @@ class Pit : noncopyable
 public:
   explicit
   Pit(NameTree& nameTree);
+
+  ~Pit();
 
   /**
    * \brief Returns the number of entries.
@@ -176,22 +179,35 @@ private:
   std::pair<shared_ptr<Entry>, bool>
   findOrInsert(const Interest& interest, bool allowInsert);
   
-  static uint64_t hashName(const Name& name);
-
 private:
   NameTree& m_nameTree;
   size_t m_nItems = 0;
 
+  // blockId allocator: pop a free id, or return -1 if pool exhausted.
+  static int allocateBlockId();
+  static void freeBlockId(int blockId);
+
+  // Write Interest wire bytes to ORAM block `blockId`.
+  // Returns false if the wire is too large for one block.
+  static bool writeInterestToOram(int blockId, const Interest& interest);
+
+  // Read ORAM block `blockId` and reconstruct the Interest.
+  // Returns nullptr on empty block or decode failure.
+  static shared_ptr<const Interest> readInterestFromOram(int blockId);
+
+  // Zero ORAM block `blockId` (erase/eviction).
+  static void clearOramBlock(int blockId);
+
 public: //ORAM
   static constexpr int ORAM_CAPACITY = 1024;
-  // Must equal Block::BLOCK_SIZE: OramReadPathEviction::access() copies
-  // Block::BLOCK_SIZE ints from the caller's buffer unconditionally, so any
-  // smaller value here produces an out-of-bounds read on every PIT operation.
+  // Must equal Block::BLOCK_SIZE.
   static constexpr int ORAM_BLOCK_SIZE = ::Block::BLOCK_SIZE;
   static std::unique_ptr<ServerStorage> s_storage;
   static std::unique_ptr<RandomForOram> s_randGen;
   static std::unique_ptr<OramInterface> s_oram;
   static std::once_flag s_oramOnceFlag;
+  static std::deque<int> s_freeBlockIds;
+  static std::mutex s_oramMutex;
 };
 
 } // namespace pit

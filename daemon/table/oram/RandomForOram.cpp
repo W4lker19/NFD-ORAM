@@ -5,8 +5,6 @@
 #include "RandomForOram.h"
 #include <iostream>
 
-bool RandomForOram::is_initialized = false;
-int RandomForOram::bound = -1; 
 
 
 

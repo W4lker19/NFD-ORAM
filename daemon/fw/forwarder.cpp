@@ -137,6 +137,10 @@ Forwarder::onIncomingInterest(const Interest& interest, const FaceEndpoint& ingr
 
   // PIT insert
   shared_ptr<pit::Entry> pitEntry = m_pit.insert(interest).first;
+  if (pitEntry == nullptr) {
+    NFD_LOG_WARN("onIncomingInterest PIT pool exhausted, dropping " << interest.getName());
+    return;
+  }
 
   // detect duplicate Nonce in PIT entry
   int dnw = fw::findDuplicateNonce(*pitEntry, nonce, ingress.face);
