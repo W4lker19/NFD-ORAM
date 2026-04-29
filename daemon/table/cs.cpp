@@ -272,32 +272,39 @@ Cs::eraseImpl(const Name& prefix, size_t limit)
 Cs::const_iterator
 Cs::findInOram(const Interest& interest, shared_ptr<Data>& outData) const
 {
-  auto it = m_table.lower_bound(interest.getName());
-  if (it == m_table.end()) {
-    return m_table.end();
-  }
+  // Walk forward from lower_bound through entries whose names extend the
+  // queried name; stop on the first one that satisfies the Interest after
+  // an ORAM round-trip. The previous one-shot lower_bound check missed any
+  // case where the closest entry was stale (MustBeFresh=true) or didn't
+  // match for some other reason — e.g. the cs.t.cpp MustBeFresh test which
+  // expects the walk to skip /A/1, /A/2 (FreshnessPeriod=0) and return /A/3.
+  const Name& queryName = interest.getName();
+  for (auto it = m_table.lower_bound(queryName);
+       it != m_table.end() && queryName.isPrefixOf(it->getName());
+       ++it) {
+    // Cheap freshness filter — avoids an ORAM read for entries that would
+    // be rejected anyway.
+    if (interest.getMustBeFresh() && !it->isFresh()) {
+      continue;
+    }
 
-  // Read the candidate's ORAM block and reconstruct the Data.
-  auto data = readDataFromOram(it->getBlockId());
-  if (data == nullptr) {
-    NFD_LOG_WARN("findInOram: empty/corrupt block for " << it->getFullName());
-    return m_table.end();
-  }
+    auto data = readDataFromOram(it->getBlockId());
+    if (data == nullptr) {
+      NFD_LOG_WARN("findInOram: empty/corrupt block for " << it->getFullName());
+      continue;
+    }
+    if (!interest.matchesData(*data)) {
+      continue;
+    }
 
-  // Run the original canSatisfy check against the freshly decoded Data.
-  if (!interest.matchesData(*data)) {
-    return m_table.end();
+    NFD_LOG_INFO("find " << interest.getName()
+                 << " matched " << it->getFullName()
+                 << " blockId=" << it->getBlockId());
+    outData = std::move(data);
+    m_policy->beforeUse(it);
+    return it;
   }
-  if (interest.getMustBeFresh() && !it->isFresh()) {
-    return m_table.end();
-  }
-
-  NFD_LOG_INFO("find " << interest.getName()
-               << " matched " << it->getFullName()
-               << " blockId=" << it->getBlockId());
-  outData = std::move(data);
-  m_policy->beforeUse(it);
-  return it;
+  return m_table.end();
 }
 
 Cs::const_iterator
