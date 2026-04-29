@@ -272,15 +272,22 @@ Cs::eraseImpl(const Name& prefix, size_t limit)
 Cs::const_iterator
 Cs::findInOram(const Interest& interest, shared_ptr<Data>& outData) const
 {
-  // Walk forward from lower_bound through entries whose names extend the
-  // queried name; stop on the first one that satisfies the Interest after
-  // an ORAM round-trip. The previous one-shot lower_bound check missed any
-  // case where the closest entry was stale (MustBeFresh=true) or didn't
-  // match for some other reason — e.g. the cs.t.cpp MustBeFresh test which
-  // expects the walk to skip /A/1, /A/2 (FreshnessPeriod=0) and return /A/3.
+  // Walk forward from lower_bound through entries whose full names extend
+  // the queried name; stop on the first one that satisfies the Interest
+  // after an ORAM round-trip. The previous one-shot lower_bound check
+  // missed any case where the closest entry was stale (MustBeFresh=true)
+  // or didn't match for some other reason — e.g. the cs.t.cpp MustBeFresh
+  // test expects the walk to skip /A/1, /A/2 (FreshnessPeriod=0) and
+  // return /A/3.
+  //
+  // We compare against getFullName() (which includes the implicit digest)
+  // rather than getName() so that full-name queries — where the query
+  // itself carries a digest component, e.g. "/A/<digest>" — actually
+  // satisfy the prefix predicate. "/A/<digest>".isPrefixOf("/A") is
+  // false, but "/A/<digest>".isPrefixOf("/A/<digest>") is true.
   const Name& queryName = interest.getName();
   for (auto it = m_table.lower_bound(queryName);
-       it != m_table.end() && queryName.isPrefixOf(it->getName());
+       it != m_table.end() && queryName.isPrefixOf(it->getFullName());
        ++it) {
     // Cheap freshness filter — avoids an ORAM read for entries that would
     // be rejected anyway.
