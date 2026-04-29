@@ -225,6 +225,36 @@ public:
   bool
   canMatch(const Interest& interest, size_t nEqualNameComps = 0) const;
 
+public: // ORAM bookkeeping
+
+  /** \brief ORAM block id where the encoded Interest lives.
+   *  -1 means not yet assigned.
+   */
+  int
+  getBlockId() const noexcept
+  {
+    return m_blockId;
+  }
+
+  void
+  setBlockId(int id) noexcept
+  {
+    m_blockId = id;
+  }
+
+  /** \brief Replace the in-memory Interest with a freshly ORAM-decoded copy.
+   *
+   *  Called by Pit on every successful find so the Interest seen by the
+   *  forwarding pipeline is always sourced from the ORAM, not from the
+   *  original insertion. This makes the ORAM the authoritative store.
+   */
+  void
+  refreshInterest(shared_ptr<const Interest> interest) noexcept
+  {
+    BOOST_ASSERT(interest != nullptr);
+    m_interest = std::move(interest);
+  }
+
 public: // in-record
   /**
    * \brief Returns the collection of in-records.
@@ -387,6 +417,7 @@ public:
 
 private:
   shared_ptr<const Interest> m_interest;
+  int m_blockId = -1;
   InRecordCollection m_inRecords;
   OutRecordCollection m_outRecords;
 
