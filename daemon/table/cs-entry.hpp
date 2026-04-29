@@ -33,24 +33,22 @@
 namespace nfd::cs {
 
 /** \brief A ContentStore entry.
+ *
+ *  After the ORAM-authoritative refactor, the Entry is a *thin index record*:
+ *  it holds the bare and full Names of the cached Data plus enough metadata
+ *  for freshness/policy decisions. The encoded Data wire bytes themselves
+ *  live in the ORAM and are reconstructed on every read via Cs::find.
  */
 class Entry
 {
 public: // exposed through ContentStore enumeration
-  /** \brief Return the stored Data.
-   */
-  const Data&
-  getData() const
-  {
-    return *m_data;
-  }
 
-  /** \brief Return stored Data name.
+  /** \brief Return stored Data name (without implicit digest).
    */
   const Name&
   getName() const
   {
-    return m_data->getName();
+    return m_name;
   }
 
   /** \brief Return full name (including implicit digest) of the stored Data.
@@ -58,7 +56,7 @@ public: // exposed through ContentStore enumeration
   const Name&
   getFullName() const
   {
-    return m_data->getFullName();
+    return m_fullName;
   }
 
   /** \brief Return whether the stored Data is unsolicited.
@@ -74,13 +72,30 @@ public: // exposed through ContentStore enumeration
   bool
   isFresh() const;
 
-  /** \brief Determine whether Interest can be satisified by the stored Data.
+  /** \brief Freshness period of the stored Data.
+   *
+   *  Cached at insert time so policies (e.g. priority-fifo) can schedule
+   *  staleness without re-reading the ORAM block.
    */
-  bool
-  canSatisfy(const Interest& interest) const;
+  time::milliseconds
+  getFreshnessPeriod() const
+  {
+    return m_freshnessPeriod;
+  }
+
+  /** \brief ORAM block id where the encoded Data lives.
+   */
+  int
+  getBlockId() const
+  {
+    return m_blockId;
+  }
 
 public: // used by ContentStore implementation
-  Entry(shared_ptr<const Data> data, bool isUnsolicited);
+
+  /** \brief Build an index entry for \p data, addressing ORAM block \p blockId.
+   */
+  Entry(const Data& data, int blockId, bool isUnsolicited);
 
   /** \brief Recalculate when the entry would become non-fresh, relative to current time.
    */
@@ -96,9 +111,12 @@ public: // used by ContentStore implementation
   }
 
 private:
-  shared_ptr<const Data> m_data;
-  bool m_isUnsolicited;
+  Name m_name;
+  Name m_fullName;
+  time::milliseconds m_freshnessPeriod;
   time::steady_clock::time_point m_freshUntil;
+  int m_blockId;
+  bool m_isUnsolicited;
 };
 
 bool

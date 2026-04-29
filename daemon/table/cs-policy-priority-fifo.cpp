@@ -115,7 +115,7 @@ PriorityFifoPolicy::attachQueue(EntryRef i)
   }
   else {
     entryInfo->queueType = QUEUE_FIFO;
-    entryInfo->moveStaleEventId = getScheduler().schedule(i->getData().getFreshnessPeriod(),
+    entryInfo->moveStaleEventId = getScheduler().schedule(i->getFreshnessPeriod(),
                                                           [=] { moveToStaleQueue(i); });
   }
 

@@ -1,6 +1,6 @@
 /* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
 /*
- * Copyright (c) 2014-2022,  Regents of the University of California,
+ * Copyright (c) 2014-2024,  Regents of the University of California,
  *                           Arizona Board of Regents,
  *                           Colorado State University,
  *                           University Pierre & Marie Curie, Sorbonne University,
@@ -27,8 +27,11 @@
 
 namespace nfd::cs {
 
-Entry::Entry(shared_ptr<const Data> data, bool isUnsolicited)
-  : m_data(std::move(data))
+Entry::Entry(const Data& data, int blockId, bool isUnsolicited)
+  : m_name(data.getName())
+  , m_fullName(data.getFullName())
+  , m_freshnessPeriod(data.getFreshnessPeriod())
+  , m_blockId(blockId)
   , m_isUnsolicited(isUnsolicited)
 {
   updateFreshUntil();
@@ -43,71 +46,52 @@ Entry::isFresh() const
 void
 Entry::updateFreshUntil()
 {
-  m_freshUntil = time::steady_clock::now() + m_data->getFreshnessPeriod();
+  m_freshUntil = time::steady_clock::now() + m_freshnessPeriod;
 }
 
-bool
-Entry::canSatisfy(const Interest& interest) const
-{
-  if (!interest.matchesData(*m_data)) {
-    return false;
-  }
-
-  if (interest.getMustBeFresh() && !this->isFresh()) {
-    return false;
-  }
-
-  return true;
-}
-
+// Same lookup semantics as the original, but driven from the cached Names
+// instead of the (now-removed) m_data. queryName may or may not include an
+// implicit-digest component; the entry always stores both forms.
 static int
-compareQueryWithData(const Name& queryName, const Data& data)
+compareQueryWithEntry(const Name& queryName, const Entry& entry)
 {
   bool queryIsFullName = !queryName.empty() && queryName[-1].isImplicitSha256Digest();
 
   int cmp = queryIsFullName ?
-            queryName.compare(0, queryName.size() - 1, data.getName()) :
-            queryName.compare(data.getName());
+            queryName.compare(0, queryName.size() - 1, entry.getName()) :
+            queryName.compare(entry.getName());
 
-  if (cmp != 0) { // Name without digest differs
-    return cmp;
-  }
-
-  if (queryIsFullName) { // Name without digest equals, compare digest
-    return queryName[-1].compare(data.getFullName()[-1]);
-  }
-  else { // queryName is a proper prefix of Data fullName
-    return -1;
-  }
-}
-
-static int
-compareDataWithData(const Data& lhs, const Data& rhs)
-{
-  int cmp = lhs.getName().compare(rhs.getName());
   if (cmp != 0) {
     return cmp;
   }
 
-  return lhs.getFullName()[-1].compare(rhs.getFullName()[-1]);
+  if (queryIsFullName) {
+    return queryName[-1].compare(entry.getFullName()[-1]);
+  }
+  // queryName is a proper prefix of entry's full name
+  return -1;
 }
 
 bool
 operator<(const Entry& entry, const Name& queryName)
 {
-  return compareQueryWithData(queryName, entry.getData()) > 0;
+  return compareQueryWithEntry(queryName, entry) > 0;
 }
 
 bool
 operator<(const Name& queryName, const Entry& entry)
 {
-  return compareQueryWithData(queryName, entry.getData()) < 0;
+  return compareQueryWithEntry(queryName, entry) < 0;
 }
 
 bool
 operator<(const Entry& lhs, const Entry& rhs)
 {
-  return compareDataWithData(lhs.getData(), rhs.getData()) < 0;
+  int cmp = lhs.getName().compare(rhs.getName());
+  if (cmp != 0) {
+    return cmp < 0;
+  }
+  return lhs.getFullName()[-1].compare(rhs.getFullName()[-1]) < 0;
 }
 
 } // namespace nfd::cs
