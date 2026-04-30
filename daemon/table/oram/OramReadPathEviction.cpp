@@ -24,8 +24,6 @@ OramReadPathEviction::OramReadPathEviction(UntrustedStorageInterface* storage, R
         throw runtime_error("Not enough space for the acutal number of blocks.");
     }
     this->num_leaves = pow(2, num_levels-1);
-    Bucket::resetState();
-    Bucket::setMaxSize(bucket_size);
     this->rand_gen->setBound(num_leaves);
     this->storage->setCapacity(num_buckets);
     this->position_map = new int[this->num_blocks];
@@ -152,7 +150,7 @@ int* OramReadPathEviction::access(Operation op, int blockIndex, int *newdata) {
                                                                slots[j].data_size);
             }
 
-            counter += take; // 0 or 1 — branch-free addition
+            counter += (take >> 31); // convert mask (0 / 0xFFFFFFFF) to 0 / 1
             // Mark taken stash slot as evicted; skipped by notDummy guard above
             // in subsequent level iterations.
             stash[i].index = oblivious::ct_select_i32(take, -1, stash[i].index);
