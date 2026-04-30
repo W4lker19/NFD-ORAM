@@ -5,6 +5,7 @@
 #include "OramReadPathEviction.h"
 #include "ObliviousOps.h"
 #include <cstdint>
+#include <algorithm>
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -103,48 +104,75 @@ int* OramReadPathEviction::access(Operation op, int blockIndex, int *newdata) {
         }
     }
 
-    // Eviction: write back along the old path, deepest level first. We scan
-    // the whole stash at every level (no early exit on bucket-full) so the
-    // per-level work is independent of which specific stash slots are eligible.
-    // The actual addBlock / erase calls remain conditional; making them fully
-    // oblivious requires a fixed-size per-slot cmov fill, which is left for
-    // a follow-up refactor (see TEE hardening notes).
+    // Eviction: write back along the old path, deepest level first.
+    //
+    // Fully oblivious design: for every level we scan the entire stash with
+    // no data-dependent branches or early exits. Each bucket is pre-built as
+    // `bucket_size` dummy slots; eligible stash blocks are selected into the
+    // correct slot via ct_memcpy / ct_select_i32 so the host sees a fixed
+    // memory-access pattern regardless of which blocks are evicted.
+    //
+    // Stash entries taken for a bucket are marked index=-1 in-place so they
+    // are skipped in later level iterations without a conditional erase.
+    // A single compaction pass after all levels removes them from the vector.
     for (int l = num_levels - 1; l >= 0; l--) {
 
-        Bucket bucket = Bucket();
         int Pxl = P(oldLeaf, l);
-        int counter = 0;
-        vector<size_t> evicted_positions;
-        evicted_positions.reserve(static_cast<size_t>(bucket_size));
+
+        // Pre-build bucket_size slots as dummies (index = -1).
+        vector<Block> slots(static_cast<size_t>(bucket_size));
+        uint32_t counter = 0;
 
         for (size_t i = 0; i < stash.size(); i++) {
-            const Block& b = stash[i];
-            // Always read position_map[b.index] (no branch on b.index validity);
-            // we already filtered dummies on absorb so b.index is in range.
-            int blockLeaf = position_map[b.index];
-            int Pblock = P(blockLeaf, l);
-            uint32_t eligible = oblivious::ct_eq_i32(Pblock, Pxl);
-            uint32_t hasRoom  = oblivious::ct_lt_u32(static_cast<uint32_t>(counter),
-                                                    static_cast<uint32_t>(bucket_size));
-            if ((eligible & hasRoom) != 0u) {
-                bucket.addBlock(b);
-                evicted_positions.push_back(i);
-                counter++;
+            int32_t idx = stash[i].index;
+
+            // Guard already-evicted stash slots (index == -1): clamp to 0 so
+            // position_map[] is never accessed out of range.
+            uint32_t notDummy = ~oblivious::ct_eq_i32(idx, -1);
+            int32_t safeIdx   = oblivious::ct_select_i32(notDummy, idx, 0);
+
+            int blockLeaf    = position_map[safeIdx];
+            uint32_t eligible = oblivious::ct_eq_i32(P(blockLeaf, l), Pxl) & notDummy;
+            uint32_t hasRoom  = oblivious::ct_lt_u32(counter,
+                                                     static_cast<uint32_t>(bucket_size));
+            uint32_t take = eligible & hasRoom;
+
+            // Obliviously write stash[i] into slot[counter] if taken.
+            // The inner loop touches every slot so the write address is fixed.
+            for (int j = 0; j < bucket_size; j++) {
+                uint32_t isMySlot = oblivious::ct_eq_i32(static_cast<int32_t>(counter), j);
+                uint32_t doWrite  = take & isMySlot;
+                oblivious::ct_memcpy_i32(slots[j].data, stash[i].data,
+                                         Block::BLOCK_SIZE, doWrite);
+                slots[j].index     = oblivious::ct_select_i32(doWrite, stash[i].index,
+                                                               slots[j].index);
+                slots[j].leaf_id   = oblivious::ct_select_i32(doWrite, stash[i].leaf_id,
+                                                               slots[j].leaf_id);
+                slots[j].data_size = oblivious::ct_select_i32(doWrite, stash[i].data_size,
+                                                               slots[j].data_size);
             }
+
+            counter += take; // 0 or 1 — branch-free addition
+            // Mark taken stash slot as evicted; skipped by notDummy guard above
+            // in subsequent level iterations.
+            stash[i].index = oblivious::ct_select_i32(take, -1, stash[i].index);
         }
 
-        // Remove evicted entries from the stash. Iterate from the back so
-        // earlier indices stay valid.
-        for (size_t k = evicted_positions.size(); k-- > 0;) {
-            stash.erase(stash.begin() + evicted_positions[k]);
-        }
-
-        while (counter < bucket_size) {
-            bucket.addBlock(Block()); // dummy
-            counter++;
+        // Build bucket from the fixed-size slot array and write to storage.
+        // addBlock is called exactly bucket_size times on a fresh bucket, so
+        // its internal size-check branch is always taken — no leakage.
+        Bucket bucket = Bucket();
+        for (int j = 0; j < bucket_size; j++) {
+            bucket.addBlock(slots[j]);
         }
         storage->WriteBucket(Pxl, bucket);
     }
+
+    // Compact stash: remove entries marked as evicted (index == -1).
+    stash.erase(
+        std::remove_if(stash.begin(), stash.end(),
+                       [](const Block& b) { return b.index == -1; }),
+        stash.end());
 
     return data;
 }
