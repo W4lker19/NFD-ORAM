@@ -10,13 +10,7 @@
 
 using namespace std;
 
-bool Bucket::is_init = false;
-int Bucket::max_size = -1;
-
 Bucket::Bucket(){
-    if(!is_init){
-        throw runtime_error("Please set bucket size before creating a bucket");
-    }
     blocks = vector<Block>();
 }
 
@@ -25,6 +19,7 @@ Bucket::Bucket(Bucket *other){
     if(other == NULL){
         throw runtime_error("the other bucket is not malloced.");
     }
+    max_size = other->max_size;
     blocks = vector<Block>(max_size);
     for(int i = 0; i < max_size; i++){
         blocks[i] = Block(other->blocks[i]);
