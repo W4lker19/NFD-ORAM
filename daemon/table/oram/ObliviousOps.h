@@ -51,6 +51,17 @@ static inline void ct_memcpy(void* dst, const void* src, size_t len, uint32_t ma
     }
 }
 
+// Conditionally copy `count` int32 words from src to dst.
+// Semantically identical to ct_memcpy(dst, src, count*4, mask) but operates
+// at 32-bit granularity so the compiler can auto-vectorize (SSE2/AVX2).
+// Use this for Block::data[] copies in the eviction hot-path.
+static inline void ct_memcpy_i32(int32_t* dst, const int32_t* src,
+                                  size_t count, uint32_t mask) {
+    for (size_t i = 0; i < count; i++) {
+        dst[i] = ct_select_i32(mask, src[i], dst[i]);
+    }
+}
+
 }  // namespace oblivious
 
 #endif  // PORAM_OBLIVIOUS_OPS_H
